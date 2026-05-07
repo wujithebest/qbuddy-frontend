@@ -7,17 +7,14 @@ import './QBuddyChat.css';
 
 // sessionStorage键名
 const SCAN_CACHE_KEY = 'qbuddy_scan_cache';
-const LAST_ROLE_KEY = 'qbuddy_last_role';
+const SCAN_LOCK_KEY = 'qbuddy_scan_lock';
 
 // 从sessionStorage加载缓存
 const loadScanCache = () => {
   try {
     const cached = sessionStorage.getItem(SCAN_CACHE_KEY);
-    const result = cached ? JSON.parse(cached) : {};
-    console.log('[QBuddy] 加载缓存，键:', SCAN_CACHE_KEY, '数据:', Object.keys(result));
-    return result;
+    return cached ? JSON.parse(cached) : {};
   } catch (e) {
-    console.error('[QBuddy] 加载缓存失败:', e);
     return {};
   }
 };
@@ -25,19 +22,48 @@ const loadScanCache = () => {
 // 保存缓存到sessionStorage
 const saveScanCache = (cache) => {
   try {
-    const dataStr = JSON.stringify(cache);
-    sessionStorage.setItem(SCAN_CACHE_KEY, dataStr);
-    console.log('[QBuddy] 保存缓存成功, 大小:', dataStr.length);
+    sessionStorage.setItem(SCAN_CACHE_KEY, JSON.stringify(cache));
+  } catch (e) {}
+};
+
+// 检查扫描是否被锁定
+const isScanLocked = (roleId) => {
+  try {
+    const lockData = sessionStorage.getItem(SCAN_LOCK_KEY);
+    if (!lockData) return false;
+    const lock = JSON.parse(lockData);
+    if (lock[roleId] === true) {
+      const cache = loadScanCache();
+      return !!(cache[roleId] && cache[roleId].phase === 'done');
+    }
+    return false;
   } catch (e) {
-    console.error('[QBuddy] 保存缓存失败:', e);
+    return false;
   }
+};
+
+// 锁定扫描
+const lockScan = (roleId) => {
+  try {
+    const lockData = sessionStorage.getItem(SCAN_LOCK_KEY);
+    const lock = lockData ? JSON.parse(lockData) : {};
+    lock[roleId] = true;
+    sessionStorage.setItem(SCAN_LOCK_KEY, JSON.stringify(lock));
+  } catch (e) {}
+};
+
+// 解锁扫描
+const unlockScan = (roleId) => {
+  try {
+    const lockData = sessionStorage.getItem(SCAN_LOCK_KEY);
+    const lock = lockData ? JSON.parse(lockData) : {};
+    delete lock[roleId];
+    sessionStorage.setItem(SCAN_LOCK_KEY, JSON.stringify(lock));
+  } catch (e) {}
 };
 
 // 初始化缓存
 let scanCache = loadScanCache();
-// 记录最后一次扫描的角色ID，防止重复扫描
-let lastScannedRoleId = sessionStorage.getItem(LAST_ROLE_KEY) || null;
-console.log('[QBuddy] 初始化, lastScannedRoleId:', lastScannedRoleId);
 
 // 进度消息映射
 const PROGRESS_MESSAGES = {
@@ -220,19 +246,33 @@ export default function QBuddyChat({ role, currentTimeIndex, onBack, onNavigateT
     return () => window.removeEventListener('qbuddy:jump-to-card', handleJumpToCard);
   }, []);
 
-  // 组件挂载时初始化：有缓存就恢复，没有就自动扫描
+  // 组件挂载时初始化
   useEffect(() => {
     const roleId = role?.id;
-    console.log('[QBuddy] 组件初始化, roleId:', roleId, 'lastScanned:', lastScannedRoleId, 'hasCache:', !!scanCache[roleId]);
     
     if (!roleId) return;
     
-    // 检查是否有该角色的有效缓存（优先检查sessionStorage中的缓存）
-    const cachedData = scanCache[roleId];
-    console.log('[QBuddy] 缓存数据:', cachedData?.phase, cachedData?.messages?.length);
+    // 检查扫描是否被锁定（已完成的状态下锁定）
+    if (isScanLocked(roleId)) {
+      const cachedData = loadScanCache()[roleId];
+      if (cachedData && cachedData.phase === 'done') {
+        console.log('[QBuddy] 扫描已锁定，直接恢复完成状态');
+        setPhase('done');
+        setMessages([...cachedData.messages]);
+        setProgressMsg(cachedData.progressMsg || '扫描完成');
+        if (cachedData.perfInfo) {
+          setPerfInfo(cachedData.perfInfo);
+        }
+        return;
+      } else {
+        // 缓存丢失，解锁
+        unlockScan(roleId);
+      }
+    }
     
+    // 检查是否有缓存
+    const cachedData = scanCache[roleId] || loadScanCache()[roleId];
     if (cachedData && cachedData.phase === 'done') {
-      // 缓存已完成，直接恢复
       console.log('[QBuddy] 恢复已完成的缓存');
       setPhase('done');
       setMessages([...cachedData.messages]);
@@ -240,30 +280,9 @@ export default function QBuddyChat({ role, currentTimeIndex, onBack, onNavigateT
       if (cachedData.perfInfo) {
         setPerfInfo(cachedData.perfInfo);
       }
+      // 锁定
+      lockScan(roleId);
       return;
-    }
-    
-    if (cachedData && cachedData.phase === 'scanning') {
-      // 缓存显示正在扫描中，检查是否真的在进行
-      console.log('[QBuddy] 缓存显示正在扫描中');
-      // 如果lastScannedRoleId也是这个角色，说明真的在扫描
-      if (lastScannedRoleId === roleId) {
-        console.log('[QBuddy] 扫描正在进行中，恢复状态');
-        setPhase('scanning');
-        setMessages([...cachedData.messages]);
-        setProgressMsg(cachedData.progressMsg || '正在扫描...');
-        return;
-      }
-    }
-    
-    // roleId变化了，清除旧状态
-    if (lastScannedRoleId && lastScannedRoleId !== roleId) {
-      console.log('[QBuddy] 角色切换:', lastScannedRoleId, '->', roleId);
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-        eventSourceRef.current = null;
-      }
-      cancelledRef.current = true;
     }
     
     // 清除无效缓存
@@ -271,10 +290,6 @@ export default function QBuddyChat({ role, currentTimeIndex, onBack, onNavigateT
       delete scanCache[roleId];
       saveScanCache(scanCache);
     }
-    
-    // 更新最后扫描的角色ID
-    lastScannedRoleId = roleId;
-    sessionStorage.setItem(LAST_ROLE_KEY, roleId);
     
     // 延迟500ms后自动开始扫描
     const timer = setTimeout(() => {
@@ -310,11 +325,7 @@ export default function QBuddyChat({ role, currentTimeIndex, onBack, onNavigateT
         progressMsg,
         perfInfo
       };
-      // 保存到sessionStorage
       saveScanCache(scanCache);
-      // 同步更新最后扫描的角色ID
-      lastScannedRoleId = roleId;
-      sessionStorage.setItem(LAST_ROLE_KEY, roleId);
     }
   }, [messages, phase, progressMsg, role?.id, perfInfo]);
 
@@ -566,7 +577,7 @@ export default function QBuddyChat({ role, currentTimeIndex, onBack, onNavigateT
               setPhase('done');
               setProgressMsg('扫描完成');
               
-              // 更新缓存
+              // 更新缓存并锁定
               const roleId = targetRole.id;
               if (roleId) {
                 scanCache[roleId] = { 
@@ -575,12 +586,11 @@ export default function QBuddyChat({ role, currentTimeIndex, onBack, onNavigateT
                   progressMsg: '扫描完成', 
                   perfInfo: finalPerfInfo 
                 };
-                saveScanCache(scanCache);
-                lastScannedRoleId = roleId;
-                sessionStorage.setItem(LAST_ROLE_KEY, roleId);
-                console.log('[QBuddy] 缓存已更新, roleId:', roleId);
-              }
-            }, 800);
+      saveScanCache(scanCache);
+      lockScan(roleId);
+      console.log('[QBuddy] 扫描完成并锁定, roleId:', roleId);
+    }
+  }, 800);
             
             if (eventSourceRef.current) {
               eventSourceRef.current.close();
@@ -646,12 +656,11 @@ export default function QBuddyChat({ role, currentTimeIndex, onBack, onNavigateT
         setMessages([welcomeMsg]);
         setPhase('done');
         setProgressMsg('后端未启动，本地暂无模拟数据。请启动后端以获得完整体验。');
-        // 更新缓存
+        // 更新缓存并锁定
         if (roleId) {
           scanCache[roleId] = { phase: 'done', messages: [welcomeMsg], progressMsg: '后端未启动', perfInfo: null };
           saveScanCache(scanCache);
-          lastScannedRoleId = roleId;
-          sessionStorage.setItem(LAST_ROLE_KEY, roleId);
+          lockScan(roleId);  // 锁定
         }
         return;
       }
@@ -696,12 +705,11 @@ export default function QBuddyChat({ role, currentTimeIndex, onBack, onNavigateT
         setProgressMsg('扫描完成');
         setPerfInfo(finalPerfInfo);
         
-        // 更新缓存
+        // 更新缓存并锁定
         if (roleId) {
           scanCache[roleId] = { phase: 'done', messages: finalMessages, progressMsg: '扫描完成', perfInfo: finalPerfInfo };
           saveScanCache(scanCache);
-          lastScannedRoleId = roleId;
-          sessionStorage.setItem(LAST_ROLE_KEY, roleId);
+          lockScan(roleId);  // 锁定
         }
       }, 4000 + 800);
       
@@ -737,13 +745,11 @@ export default function QBuddyChat({ role, currentTimeIndex, onBack, onNavigateT
       eventSourceRef.current = null;
     }
     
-    // 清除当前角色的缓存
+    // 清除缓存并解锁
     if (roleId) {
       delete scanCache[roleId];
       saveScanCache(scanCache);
-      // 重置扫描标记，允许重新扫描
-      lastScannedRoleId = null;
-      sessionStorage.removeItem(LAST_ROLE_KEY);
+      unlockScan(roleId);  // 解锁
     }
     
     // 重置取消标记
