@@ -862,7 +862,9 @@ export default function QBuddyChat({ role, currentTimeIndex, onBack, onNavigateT
             <div className="bubble-avatar">{QBUDDY_AVATAR}</div>
             <div className="bubble-content">
               <div className="bubble-text" style={{fontSize: '12px', color: '#6B7280'}}>
-                ⏱️ 图谱构建: {perfInfo.graph_build_time}s · 卡片生成: {perfInfo.card_gen_time}s · 总计: {perfInfo.total_time}s
+                ⏱️ 第一段(图谱构建): {perfInfo.phase1_llm_time || perfInfo.graph_build_time}s · 
+                第二段(整合输出): {perfInfo.phase2_integration_time || perfInfo.card_gen_time}s · 
+                总计: {perfInfo.total_time}s
               </div>
             </div>
           </div>
