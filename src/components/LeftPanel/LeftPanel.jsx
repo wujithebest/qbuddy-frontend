@@ -7,7 +7,9 @@ export default function LeftPanel({
   selectedRole, 
   onRoleSelect,
   roleId,
-  qbuddyPhase
+  qbuddyPhase,
+  hasNewAlerts = false,
+  alertCount = 0
 }) {
   if (!selectedRole) {
     return (
@@ -75,6 +77,14 @@ export default function LeftPanel({
       <div className="panel-content">
         <RoleSelector selectedRole={selectedRole} onSelect={onRoleSelect} />
         <UserProfile role={selectedRole} />
+        
+        {/* 告警指示器 - 当有新告警时显示 */}
+        {hasNewAlerts && (
+          <div className="alert-indicator">
+            <span className="alert-badge">🔔</span>
+            <span className="alert-text">有 {alertCount} 条新提醒</span>
+          </div>
+        )}
         
         {/* 痛点场景直达按钮组 */}
         <div className="painpoint-section">

@@ -11,7 +11,8 @@ import './QQSimulation.css';
 
 export default function QQSimulation({ 
   role, 
-  onQbuddyPhaseChange
+  onQbuddyPhaseChange,
+  onQbuddyClick
 }) {
   const [activeTab, setActiveTab] = useState('chats');
   const [selectedChat, setSelectedChat] = useState(null);

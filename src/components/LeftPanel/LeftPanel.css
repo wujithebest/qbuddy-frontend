@@ -287,3 +287,49 @@
   color: #9CA3AF;
   margin-top: 2px;
 }
+
+/* 告警指示器 - 新提醒提示 */
+.alert-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: linear-gradient(135deg, #FF6B6B 0%, #FF8E53 100%);
+  border-radius: 10px;
+  margin-bottom: 12px;
+  animation: alertPulse 2s ease-in-out infinite;
+}
+
+.alert-badge {
+  font-size: 18px;
+  animation: alertRing 1.5s ease-in-out infinite;
+}
+
+.alert-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: white;
+}
+
+@keyframes alertPulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 2px 8px rgba(255, 107, 107, 0.3);
+  }
+  50% {
+    transform: scale(1.02);
+    box-shadow: 0 4px 16px rgba(255, 107, 107, 0.5);
+  }
+}
+
+@keyframes alertRing {
+  0%, 100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(15deg);
+  }
+  75% {
+    transform: rotate(-15deg);
+  }
+}

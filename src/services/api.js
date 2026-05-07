@@ -147,6 +147,184 @@ export const api = {
       return null;
     }
   },
+
+  // ============ QBuddy 新版 API（8个步骤） ============
+
+  // 初始化 QBuddy 服务（步骤1-3）
+  async qbuddyInit(role) {
+    const password = localStorage.getItem('qbuddy_password') || 'qbuddy2026';
+    try {
+      const response = await fetch(`${API_BASE}/qbuddy/init`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Access-Password': password,
+        },
+        body: JSON.stringify({ role }),
+      });
+      if (!response.ok) throw new Error(`API Error: ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      console.warn('QB初始化API调用失败:', error.message);
+      return null;
+    }
+  },
+
+  // 获取用户 skill.md（步骤2）
+  async getUserSkill(role) {
+    const password = localStorage.getItem('qbuddy_password') || 'qbuddy2026';
+    try {
+      const response = await fetch(`${API_BASE}/qbuddy/skill?role=${role}`, {
+        headers: { 'X-Access-Password': password },
+      });
+      if (!response.ok) throw new Error(`API Error: ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      console.warn('获取skill API调用失败:', error.message);
+      return null;
+    }
+  },
+
+  // 启动后台服务（步骤4-5）
+  async startBackgroundServices(role) {
+    const password = localStorage.getItem('qbuddy_password') || 'qbuddy2026';
+    try {
+      const response = await fetch(`${API_BASE}/qbuddy/background/start`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Access-Password': password,
+        },
+        body: JSON.stringify({ role }),
+      });
+      if (!response.ok) throw new Error(`API Error: ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      console.warn('启动后台服务API调用失败:', error.message);
+      return null;
+    }
+  },
+
+  // 停止后台服务
+  async stopBackgroundServices() {
+    const password = localStorage.getItem('qbuddy_password') || 'qbuddy2026';
+    try {
+      const response = await fetch(`${API_BASE}/qbuddy/background/stop`, {
+        method: 'POST',
+        headers: { 'X-Access-Password': password },
+      });
+      if (!response.ok) throw new Error(`API Error: ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      console.warn('停止后台服务API调用失败:', error.message);
+      return null;
+    }
+  },
+
+  // 获取待处理告警（步骤5：用于闪亮提醒）
+  async getAlerts(role) {
+    const password = localStorage.getItem('qbuddy_password') || 'qbuddy2026';
+    try {
+      const response = await fetch(`${API_BASE}/qbuddy/alerts?role=${role}`, {
+        headers: { 'X-Access-Password': password },
+      });
+      if (!response.ok) throw new Error(`API Error: ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      console.warn('获取告警API调用失败:', error.message);
+      return null;
+    }
+  },
+
+  // 获取推送卡片（步骤6）
+  async getPushCards(role) {
+    const password = localStorage.getItem('qbuddy_password') || 'qbuddy2026';
+    try {
+      const response = await fetch(`${API_BASE}/qbuddy/push-cards?role=${role}`, {
+        headers: { 'X-Access-Password': password },
+      });
+      if (!response.ok) throw new Error(`API Error: ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      console.warn('获取推送卡片API调用失败:', error.message);
+      return null;
+    }
+  },
+
+  // QBuddy 对话 v2（步骤7：Tool Calling）
+  async qbuddyChatV2(message, role) {
+    const password = localStorage.getItem('qbuddy_password') || 'qbuddy2026';
+    try {
+      const response = await fetch(`${API_BASE}/qbuddy/chat-v2`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Access-Password': password,
+        },
+        body: JSON.stringify({ message, role }),
+      });
+      if (!response.ok) throw new Error(`API Error: ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      console.warn('QB对话v2 API调用失败:', error.message);
+      return null;
+    }
+  },
+
+  // 记录用户反馈（步骤8：动态阈值调整）
+  async recordFeedback(role, cardType, action, interacted) {
+    const password = localStorage.getItem('qbuddy_password') || 'qbuddy2026';
+    try {
+      const response = await fetch(`${API_BASE}/qbuddy/feedback`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Access-Password': password,
+        },
+        body: JSON.stringify({ role, card_type: cardType, action, interacted }),
+      });
+      if (!response.ok) throw new Error(`API Error: ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      console.warn('记录反馈API调用失败:', error.message);
+      return null;
+    }
+  },
+
+  // 获取阈值配置
+  async getThresholds(role) {
+    const password = localStorage.getItem('qbuddy_password') || 'qbuddy2026';
+    try {
+      const response = await fetch(`${API_BASE}/qbuddy/thresholds?role=${role}`, {
+        headers: { 'X-Access-Password': password },
+      });
+      if (!response.ok) throw new Error(`API Error: ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      console.warn('获取阈值API调用失败:', error.message);
+      return null;
+    }
+  },
+
+  // 重置阈值
+  async resetThresholds(role) {
+    const password = localStorage.getItem('qbuddy_password') || 'qbuddy2026';
+    try {
+      const response = await fetch(`${API_BASE}/qbuddy/thresholds/reset`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Access-Password': password,
+        },
+        body: JSON.stringify({ role }),
+      });
+      if (!response.ok) throw new Error(`API Error: ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      console.warn('重置阈值API调用失败:', error.message);
+      return null;
+    }
+  },
 };
 
 export default api;
