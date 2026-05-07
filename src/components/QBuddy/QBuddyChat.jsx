@@ -13,7 +13,9 @@ const LAST_ROLE_KEY = 'qbuddy_last_role';
 const loadScanCache = () => {
   try {
     const cached = sessionStorage.getItem(SCAN_CACHE_KEY);
-    return cached ? JSON.parse(cached) : {};
+    const result = cached ? JSON.parse(cached) : {};
+    console.log('[QBuddy] 加载缓存，键:', SCAN_CACHE_KEY, '数据:', Object.keys(result));
+    return result;
   } catch (e) {
     console.error('[QBuddy] 加载缓存失败:', e);
     return {};
@@ -23,7 +25,9 @@ const loadScanCache = () => {
 // 保存缓存到sessionStorage
 const saveScanCache = (cache) => {
   try {
-    sessionStorage.setItem(SCAN_CACHE_KEY, JSON.stringify(cache));
+    const dataStr = JSON.stringify(cache);
+    sessionStorage.setItem(SCAN_CACHE_KEY, dataStr);
+    console.log('[QBuddy] 保存缓存成功, 大小:', dataStr.length);
   } catch (e) {
     console.error('[QBuddy] 保存缓存失败:', e);
   }
@@ -33,6 +37,7 @@ const saveScanCache = (cache) => {
 let scanCache = loadScanCache();
 // 记录最后一次扫描的角色ID，防止重复扫描
 let lastScannedRoleId = sessionStorage.getItem(LAST_ROLE_KEY) || null;
+console.log('[QBuddy] 初始化, lastScannedRoleId:', lastScannedRoleId);
 
 // 进度消息映射
 const PROGRESS_MESSAGES = {
@@ -218,34 +223,42 @@ export default function QBuddyChat({ role, currentTimeIndex, onBack, onNavigateT
   // 组件挂载时初始化：有缓存就恢复，没有就自动扫描
   useEffect(() => {
     const roleId = role?.id;
-    console.log('[QBuddy] 组件初始化/更新, roleId:', roleId, 'lastScanned:', lastScannedRoleId);
+    console.log('[QBuddy] 组件初始化, roleId:', roleId, 'lastScanned:', lastScannedRoleId, 'hasCache:', !!scanCache[roleId]);
     
     if (!roleId) return;
     
-    // 防止重复扫描：如果已经扫描过这个角色，直接恢复缓存
-    if (lastScannedRoleId === roleId && scanCache[roleId]) {
-      console.log('[QBuddy] 恢复缓存, phase:', scanCache[roleId].phase);
-      
-      if (scanCache[roleId].phase === 'done') {
-        // 如果已完成，直接恢复
-        setPhase('done');
-        setMessages([...scanCache[roleId].messages]);
-        setProgressMsg(scanCache[roleId].progressMsg || '扫描完成');
-        if (scanCache[roleId].perfInfo) {
-          setPerfInfo(scanCache[roleId].perfInfo);
-        }
-        return;
-      } else if (scanCache[roleId].phase === 'scanning') {
-        // 如果正在扫描中，不要重新开始，直接返回
-        console.log('[QBuddy] 扫描正在进行中，跳过');
+    // 检查是否有该角色的有效缓存（优先检查sessionStorage中的缓存）
+    const cachedData = scanCache[roleId];
+    console.log('[QBuddy] 缓存数据:', cachedData?.phase, cachedData?.messages?.length);
+    
+    if (cachedData && cachedData.phase === 'done') {
+      // 缓存已完成，直接恢复
+      console.log('[QBuddy] 恢复已完成的缓存');
+      setPhase('done');
+      setMessages([...cachedData.messages]);
+      setProgressMsg(cachedData.progressMsg || '扫描完成');
+      if (cachedData.perfInfo) {
+        setPerfInfo(cachedData.perfInfo);
+      }
+      return;
+    }
+    
+    if (cachedData && cachedData.phase === 'scanning') {
+      // 缓存显示正在扫描中，检查是否真的在进行
+      console.log('[QBuddy] 缓存显示正在扫描中');
+      // 如果lastScannedRoleId也是这个角色，说明真的在扫描
+      if (lastScannedRoleId === roleId) {
+        console.log('[QBuddy] 扫描正在进行中，恢复状态');
+        setPhase('scanning');
+        setMessages([...cachedData.messages]);
+        setProgressMsg(cachedData.progressMsg || '正在扫描...');
         return;
       }
     }
     
-    // roleId变化了，清除旧缓存和扫描状态
+    // roleId变化了，清除旧状态
     if (lastScannedRoleId && lastScannedRoleId !== roleId) {
-      console.log('[QBuddy] 角色切换，清除旧缓存:', lastScannedRoleId);
-      // 关闭旧的SSE连接
+      console.log('[QBuddy] 角色切换:', lastScannedRoleId, '->', roleId);
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
         eventSourceRef.current = null;
@@ -253,17 +266,19 @@ export default function QBuddyChat({ role, currentTimeIndex, onBack, onNavigateT
       cancelledRef.current = true;
     }
     
-    // 清除可能残留的无效缓存
-    if (scanCache[roleId] && scanCache[roleId].phase !== 'done') {
+    // 清除无效缓存
+    if (cachedData && cachedData.phase !== 'done') {
       delete scanCache[roleId];
+      saveScanCache(scanCache);
     }
     
     // 更新最后扫描的角色ID
     lastScannedRoleId = roleId;
+    sessionStorage.setItem(LAST_ROLE_KEY, roleId);
     
     // 延迟500ms后自动开始扫描
     const timer = setTimeout(() => {
-      console.log('[QBuddy] 开始扫描, roleId:', roleId);
+      console.log('[QBuddy] 开始扫描');
       cancelledRef.current = false;
       startScanWithRole(role);
     }, 500);
