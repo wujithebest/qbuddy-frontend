@@ -1,12 +1,49 @@
 import React, { useState, useEffect } from 'react';
 import GraphView from './GraphView';
 import AnalysisDetail from './AnalysisDetail';
+import { GRAPH_DATA } from '../../data/mockData';
 import './RightPanel.css';
 
 export default function RightPanel({ role, cards, onQbuddyPhaseChange }) {
   const [currentScenario, setCurrentScenario] = useState(null);
   const [highlightedNodes, setHighlightedNodes] = useState([]);
   const [highlightedLinks, setHighlightedLinks] = useState([]);
+  // 图谱数据状态 - 优先使用SSE传递的动态数据
+  const [graphData, setGraphData] = useState(null);
+
+  // 监听后端SSE传递的图谱更新事件
+  useEffect(() => {
+    const handleGraphUpdate = (event) => {
+      const newGraphData = event.detail;
+      if (newGraphData && newGraphData.nodes && newGraphData.links) {
+        console.log('[RightPanel] 收到图谱更新:', newGraphData);
+        setGraphData(newGraphData);
+      }
+    };
+
+    window.addEventListener('qbuddy:graph-update', handleGraphUpdate);
+    return () => {
+      window.removeEventListener('qbuddy:graph-update', handleGraphUpdate);
+    };
+  }, []);
+
+  // 监听卡片高亮事件
+  useEffect(() => {
+    const handleHighlight = (event) => {
+      const { nodes, edges } = event.detail || {};
+      if (nodes) {
+        setHighlightedNodes(nodes);
+      }
+      if (edges) {
+        setHighlightedLinks(edges);
+      }
+    };
+
+    window.addEventListener('qbuddy:highlight', handleHighlight);
+    return () => {
+      window.removeEventListener('qbuddy:highlight', handleHighlight);
+    };
+  }, []);
 
   useEffect(() => {
     if (role && cards && cards.length > 0) {
@@ -15,13 +52,16 @@ export default function RightPanel({ role, cards, onQbuddyPhaseChange }) {
       
       // 提取高亮节点
       const nodes = scenario.highlight || [];
-      setHighlightedNodes(nodes);
+      setHighlightedNodes(prev => prev.length > 0 ? prev : nodes);
       
       // 高亮相关连接
       const links = nodes.map(node => node);
-      setHighlightedLinks(links);
+      setHighlightedLinks(prev => prev.length > 0 ? prev : links);
     }
   }, [role?.id, cards]);
+
+  // 确定要传递给GraphView的图谱数据
+  const finalGraphData = graphData || (role ? GRAPH_DATA[role.id] : null);
 
   return (
     <div className="right-panel panel">
@@ -34,6 +74,7 @@ export default function RightPanel({ role, cards, onQbuddyPhaseChange }) {
           <div className="graph-container">
             <GraphView 
               role={role}
+              graphData={finalGraphData}
               highlightedNodes={highlightedNodes}
               highlightedLinks={highlightedLinks}
             />

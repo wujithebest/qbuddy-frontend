@@ -4,6 +4,8 @@
  * 支持对话式推送：dialogue（文字）和 card（卡片）
  */
 
+const API_BASE = 'https://qbuddy-backend-production.up.railway.app';
+
 /**
  * 扫描QBuddy并实时接收结果
  * @param {string} roleId - 角色ID
@@ -16,7 +18,7 @@
  */
 export function scanQBuddy(roleId, onProgress, onDialogue, onCard, onDone, onError) {
   const password = localStorage.getItem('qbuddy_password') || 'qbuddy2026';
-  const url = `/api/qbuddy/scan/${roleId}?password=${encodeURIComponent(password)}`;
+  const url = `${API_BASE}/api/qbuddy/scan/${roleId}?password=${encodeURIComponent(password)}`;
   
   const eventSource = new EventSource(url);
   

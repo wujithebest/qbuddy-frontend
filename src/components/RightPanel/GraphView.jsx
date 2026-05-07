@@ -3,7 +3,7 @@ import * as d3 from 'd3';
 import { GRAPH_DATA } from '../../data/mockData';
 import './GraphView.css';
 
-export default function GraphView({ role, highlightedNodes, highlightedLinks }) {
+export default function GraphView({ role, graphData, highlightedNodes, highlightedLinks }) {
   const svgRef = useRef(null);
   const containerRef = useRef(null);
   const [tooltipInfo, setTooltipInfo] = useState(null);
@@ -108,7 +108,8 @@ export default function GraphView({ role, highlightedNodes, highlightedLinks }) 
   useEffect(() => {
     if (!role || !svgRef.current || !containerRef.current) return;
 
-    const data = GRAPH_DATA[role.id];
+    // 优先使用传入的动态图谱数据，否则使用静态mock数据
+    const data = graphData || GRAPH_DATA[role.id];
     if (!data) return;
 
     const container = containerRef.current;
@@ -154,6 +155,9 @@ export default function GraphView({ role, highlightedNodes, highlightedLinks }) 
     // Draw links with hover interaction
     const linkGroup = g.append('g').attr('class', 'links');
     
+    // 辅助函数：获取边的强度值（兼容后端格式 weight 和前端格式 strength）
+    const getLinkStrength = (d) => d.strength ?? d.weight ?? 0.5;
+    
     const link = linkGroup
       .selectAll('line')
       .data(data.links)
@@ -161,13 +165,13 @@ export default function GraphView({ role, highlightedNodes, highlightedLinks }) 
       .append('line')
       .attr('class', d => {
         const isHighlighted = highlightedLinks.some(h => 
-          h === d.source.name || h === d.target.name ||
-          (d.source.id && h === d.source.id) || (d.target.id && h === d.target.id)
+          h === d.source?.name || h === d.target?.name ||
+          (d.source?.id && h === d.source.id) || (d.target?.id && h === d.target.id)
         );
         return `link ${isHighlighted ? 'highlighted' : ''}`;
       })
       .attr('stroke', COLORS.unified)
-      .attr('stroke-width', d => Math.max(2, d.strength * 5))
+      .attr('stroke-width', d => Math.max(2, getLinkStrength(d) * 5))
       .attr('stroke-opacity', 0.6)
       .style('filter', 'none')
       .style('cursor', 'pointer');
@@ -175,9 +179,9 @@ export default function GraphView({ role, highlightedNodes, highlightedLinks }) 
     // Link hover events for edge info
     link.on('mouseover', (event, d) => {
       const rect = container.getBoundingClientRect();
-      const sourceName = d.source.name || d.source;
-      const targetName = d.target.name || d.target;
-      const edgeType = d.source.type === 'event' || d.target.type === 'event' ? 'event_link' : 'social_link';
+      const sourceName = d.source?.name || d.source;
+      const targetName = d.target?.name || d.target;
+      const strength = getLinkStrength(d);
       
       setTooltipInfo({
         x: event.clientX - rect.left,
@@ -186,10 +190,10 @@ export default function GraphView({ role, highlightedNodes, highlightedLinks }) 
         edgeData: {
           source: sourceName,
           target: targetName,
-          edge_type: edgeType,
-          strength: d.strength,
-          threshold: edgeType === 'event_link' ? '强度>0.5 且 DDL≤7天' : '强度>0.5',
-          dataSource: edgeType === 'event_link' ? 'Group Parse → Entity Extraction' : '消息流/互动记录'
+          edge_type: d.type || 'social_link',
+          strength: strength,
+          threshold: d.type === 'event_link' ? '强度>0.5 且 DDL≤7天' : '强度>0.5',
+          dataSource: d.type === 'event_link' ? 'Group Parse → Entity Extraction' : '消息流/互动记录'
         }
       });
     })
@@ -200,16 +204,25 @@ export default function GraphView({ role, highlightedNodes, highlightedLinks }) 
     // Draw nodes
     const nodeGroup = g.append('g').attr('class', 'nodes');
     
+    // 辅助函数：获取节点类型（兼容后端数据）
+    const getNodeType = (d) => {
+      if (d.type) return d.type;
+      if (d.id === 'user') return 'user';
+      // 后端数据中联系人节点没有 type 字段，默认当作 contact
+      return 'contact';
+    };
+    
     const node = nodeGroup
       .selectAll('g')
       .data(data.nodes)
       .enter()
       .append('g')
       .attr('class', d => {
+        const nodeType = getNodeType(d);
         const isHighlighted = highlightedNodes.some(h => 
           h === d.name || h === d.id
         );
-        return `node ${d.type} ${d.eventType || ''} ${isHighlighted ? 'highlighted' : ''}`;
+        return `node ${nodeType} ${d.eventType || ''} ${isHighlighted ? 'highlighted' : ''}`;
       })
       .call(d3.drag()
         .on('start', dragstarted)
@@ -218,16 +231,25 @@ export default function GraphView({ role, highlightedNodes, highlightedLinks }) 
 
     // Helper to get temperature for contact nodes
     const getContactTemp = (d) => {
-      if (d.type !== 'contact') return 'normal';
+      const nodeType = getNodeType(d);
+      if (nodeType !== 'contact') return 'normal';
       const link = getLinkForNode(d.id || d.name);
-      return link?.temp || 'normal';
+      // 兼容后端返回的 temperature 字段
+      if (link?.temp) return link.temp;
+      if (link?.temperature !== undefined) {
+        if (link.temperature > 0.6) return 'normal';
+        if (link.temperature > 0.3) return 'cooling';
+        return 'cold';
+      }
+      return 'normal';
     };
 
     // Node circles with unified color scheme
     node.append('circle')
-      .attr('r', d => d.type === 'user' ? 38 : 28)
+      .attr('r', d => getNodeType(d) === 'user' ? 38 : 28)
       .attr('fill', d => {
-        if (d.type === 'user') return COLORS.user;
+        const nodeType = getNodeType(d);
+        if (nodeType === 'user') return COLORS.user;
         return COLORS.unified; // 统一蓝色
       })
       .style('filter', 'none');
@@ -236,15 +258,15 @@ export default function GraphView({ role, highlightedNodes, highlightedLinks }) 
     node.filter(d => highlightedNodes.some(h => h === d.name || h === d.id))
       .append('circle')
       .attr('class', 'pulse-ring')
-      .attr('r', d => d.type === 'user' ? 45 : 35)
+      .attr('r', d => getNodeType(d) === 'user' ? 45 : 35)
       .attr('fill', 'none')
-      .attr('stroke', d => d.type === 'user' ? COLORS.user : COLORS.unified)
+      .attr('stroke', d => getNodeType(d) === 'user' ? COLORS.user : COLORS.unified)
       .attr('stroke-width', 3)
       .attr('opacity', 0)
       .style('filter', 'none');
 
     // Emoji for user and contact nodes
-    node.filter(d => d.type === 'user')
+    node.filter(d => getNodeType(d) === 'user')
       .append('text')
       .text('👤')
       .attr('text-anchor', 'middle')
@@ -252,7 +274,7 @@ export default function GraphView({ role, highlightedNodes, highlightedLinks }) 
       .attr('font-size', 24)
       .attr('fill', 'white');
 
-    node.filter(d => d.type === 'contact')
+    node.filter(d => getNodeType(d) === 'contact')
       .append('text')
       .text('👤')
       .attr('text-anchor', 'middle')
@@ -261,7 +283,7 @@ export default function GraphView({ role, highlightedNodes, highlightedLinks }) 
       .attr('fill', 'white');
 
     // Event type badge for event nodes
-    node.filter(d => d.type === 'event')
+    node.filter(d => getNodeType(d) === 'event')
       .append('text')
       .text(d => EVENT_CONFIG[d.eventType]?.label || '📌')
       .attr('text-anchor', 'middle')
@@ -294,12 +316,12 @@ export default function GraphView({ role, highlightedNodes, highlightedLinks }) 
       const linkData = getLinkForNode(d.id || d.name);
       const isHighlighted = highlightedNodes.some(h => h === d.name || h === d.id);
       
-      let nodeInfo = { name: d.name || '未知', type: d.type };
+      let nodeInfo = { name: d.name || '未知', type: getNodeType(d) };
 
-      if (d.type === 'user') {
+      if (getNodeType(d) === 'user') {
         // 用户节点详情（参考 graph_builder.py add_user_node properties）
-        const friendCount = data.nodes.filter(n => n.type === 'contact').length;
-        const eventCount = data.nodes.filter(n => n.type === 'event').length;
+        const friendCount = data.nodes.filter(n => getNodeType(n) === 'contact').length;
+        const eventCount = data.nodes.filter(n => getNodeType(n) === 'event').length;
         const userProps = d.properties || {};
         
         nodeInfo = {
@@ -313,11 +335,11 @@ export default function GraphView({ role, highlightedNodes, highlightedLinks }) 
           pending: `${eventCount}项`,
           status: '活跃'
         };
-      } else if (d.type === 'event') {
+      } else if (getNodeType(d) === 'event') {
         // 事件/DDL节点详情
         const details = getEventDetails(d);
         nodeInfo = { ...nodeInfo, ...details };
-      } else if (d.type === 'contact') {
+      } else if (getNodeType(d) === 'contact') {
         // 联系人节点详情
         const details = getContactDetails(d, linkData);
         nodeInfo = { ...nodeInfo, ...details };
@@ -381,7 +403,7 @@ export default function GraphView({ role, highlightedNodes, highlightedLinks }) 
     return () => {
       simulation.stop();
     };
-  }, [role, highlightedNodes, highlightedLinks]);
+  }, [role, graphData, highlightedNodes, highlightedLinks]);
 
   if (!role) {
     return (
@@ -430,6 +452,94 @@ export default function GraphView({ role, highlightedNodes, highlightedLinks }) 
       
       {/* Node Tooltip - User */}
       {tooltipInfo && tooltipInfo.type === 'node' && tooltipInfo.nodeData?.type === 'user' && (
+        <div className="graph-tooltip-card user-tooltip" style={getTooltipStyle()}>
+          <div className="tooltip-header user-header">
+            <span className="tooltip-icon">👤</span>
+            <span className="tooltip-name">{tooltipInfo.nodeData?.name}</span>
+          </div>
+          <div className="tooltip-divider"></div>
+          <div className="tooltip-content">
+            <div className="tooltip-row">
+              <span className="tooltip-label">身份</span>
+              <span className="tooltip-value">{tooltipInfo.nodeData?.identity}</span>
+            </div>
+            <div className="tooltip-row">
+              <span className="tooltip-label">个性</span>
+              <span className="tooltip-value">{tooltipInfo.nodeData?.personality}</span>
+            </div>
+            <div className="tooltip-row">
+              <span className="tooltip-label">兴趣标签</span>
+              <span className="tooltip-value">{Array.isArray(tooltipInfo.nodeData?.interest_tags) ? tooltipInfo.nodeData.interest_tags.join(' · ') : tooltipInfo.nodeData?.interest_tags}</span>
+            </div>
+            <div className="tooltip-row">
+              <span className="tooltip-label">好友</span>
+              <span className="tooltip-value">{tooltipInfo.nodeData?.friends}</span>
+            </div>
+            <div className="tooltip-row">
+              <span className="tooltip-label">待处理</span>
+              <span className="tooltip-value">{tooltipInfo.nodeData?.pending}</span>
+            </div>
+            <div className="tooltip-row">
+              <span className="tooltip-label">阈值乘数</span>
+              <span className="tooltip-value">{tooltipInfo.nodeData?.threshold_multiplier || 1.0}×</span>
+            </div>
+            <div className="tooltip-row">
+              <span className="tooltip-label">DDL敏感度</span>
+              <span className="tooltip-value">{tooltipInfo.nodeData?.ddl_sensitivity || 1.0}</span>
+            </div>
+            <div className="tooltip-row">
+              <span className="tooltip-label">状态</span>
+              <span className="tooltip-value status-active">{tooltipInfo.nodeData?.status}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Node Tooltip - Contact */}
+      {tooltipInfo && tooltipInfo.type === 'node' && tooltipInfo.nodeData?.type === 'contact' && (
+        <div className="graph-tooltip-card contact-tooltip" style={getTooltipStyle()}>
+          <div className="tooltip-header contact-header">
+            <span className="tooltip-icon">👥</span>
+            <span className="tooltip-name">{tooltipInfo.nodeData?.name}</span>
+          </div>
+          <div className="tooltip-divider"></div>
+          <div className="tooltip-content">
+            <div className="tooltip-row">
+              <span className="tooltip-label">关系类型</span>
+              <span className="tooltip-value">{tooltipInfo.nodeData?.edge_type || tooltipInfo.nodeData?.relationship}</span>
+            </div>
+            <div className="tooltip-row">
+              <span className="tooltip-label">冷却比</span>
+              <span className="tooltip-value">{tooltipInfo.nodeData?.cooling_ratio || '1.00'}</span>
+            </div>
+            <div className="tooltip-row">
+              <span className="tooltip-label">上次互动</span>
+              <span className="tooltip-value">{tooltipInfo.nodeData?.days_since_interaction || tooltipInfo.nodeData?.actualInterval}</span>
+            </div>
+            <div className="tooltip-row">
+              <span className="tooltip-label">衰减系数λ</span>
+              <span className="tooltip-value">{tooltipInfo.nodeData?.lambda || '0.010'}</span>
+            </div>
+            <div className="tooltip-row">
+              <span className="tooltip-label">互动指数</span>
+              <span className="tooltip-value">{tooltipInfo.nodeData?.interactionIndex}</span>
+            </div>
+            <div className="tooltip-row">
+              <span className="tooltip-label">状态</span>
+              <span className={`tooltip-value ${tooltipInfo.nodeData?.status?.includes('⚠️') ? 'status-warning' : 'status-active'}`}>
+                {tooltipInfo.nodeData?.status}
+              </span>
+            </div>
+            <div className="tooltip-row threshold-row">
+              <span className="tooltip-label">触发阈值</span>
+              <span className="tooltip-value threshold">{tooltipInfo.nodeData?.threshold}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Node Tooltip - Event */}
+      {tooltipInfo && tooltipInfo.type === 'node' && tooltipInfo.nodeData?.type === 'event' && (
         <div className="graph-tooltip-card user-tooltip" style={getTooltipStyle()}>
           <div className="tooltip-header user-header">
             <span className="tooltip-icon">👤</span>
