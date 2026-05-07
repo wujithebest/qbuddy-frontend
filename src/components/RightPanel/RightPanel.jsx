@@ -8,24 +8,6 @@ export default function RightPanel({ role, cards, onQbuddyPhaseChange }) {
   const [currentScenario, setCurrentScenario] = useState(null);
   const [highlightedNodes, setHighlightedNodes] = useState([]);
   const [highlightedLinks, setHighlightedLinks] = useState([]);
-  // 图谱数据状态 - 优先使用SSE传递的动态数据
-  const [graphData, setGraphData] = useState(null);
-
-  // 监听后端SSE传递的图谱更新事件
-  useEffect(() => {
-    const handleGraphUpdate = (event) => {
-      const newGraphData = event.detail;
-      if (newGraphData && newGraphData.nodes && newGraphData.links) {
-        console.log('[RightPanel] 收到图谱更新:', newGraphData);
-        setGraphData(newGraphData);
-      }
-    };
-
-    window.addEventListener('qbuddy:graph-update', handleGraphUpdate);
-    return () => {
-      window.removeEventListener('qbuddy:graph-update', handleGraphUpdate);
-    };
-  }, []);
 
   // 监听卡片高亮事件
   useEffect(() => {
@@ -60,8 +42,8 @@ export default function RightPanel({ role, cards, onQbuddyPhaseChange }) {
     }
   }, [role?.id, cards]);
 
-  // 确定要传递给GraphView的图谱数据
-  const finalGraphData = graphData || (role ? GRAPH_DATA[role.id] : null);
+  // 直接使用mockData中的图谱数据，不再监听SSE更新
+  const finalGraphData = role ? GRAPH_DATA[role.id] : null;
 
   return (
     <div className="right-panel panel">
