@@ -7,6 +7,8 @@ import './QBuddyChat.css';
 
 // 模块级缓存：同一个role的扫描结果在组件重新挂载时保留
 const scanCache = {};
+// 记录最后一次扫描的角色ID，防止重复扫描
+let lastScannedRoleId = null;
 
 // 进度消息映射
 const PROGRESS_MESSAGES = {
@@ -192,33 +194,59 @@ export default function QBuddyChat({ role, currentTimeIndex, onBack, onNavigateT
   // 组件挂载时初始化：有缓存就恢复，没有就自动扫描
   useEffect(() => {
     const roleId = role?.id;
+    console.log('[QBuddy] 组件初始化/更新, roleId:', roleId, 'lastScanned:', lastScannedRoleId);
+    
     if (!roleId) return;
     
-    // 检查缓存：只有done状态才恢复，scanning状态说明上次中断了需要重新扫
-    if (scanCache[roleId] && scanCache[roleId].phase === 'done') {
-      const cached = scanCache[roleId];
-      setPhase('done');
-      setMessages([...cached.messages]);
-      setProgressMsg(cached.progressMsg || '扫描完成');
-      // 恢复耗时信息
-      if (cached.perfInfo) {
-        setPerfInfo(cached.perfInfo);
+    // 防止重复扫描：如果已经扫描过这个角色，直接恢复缓存
+    if (lastScannedRoleId === roleId && scanCache[roleId]) {
+      console.log('[QBuddy] 恢复缓存, phase:', scanCache[roleId].phase);
+      
+      if (scanCache[roleId].phase === 'done') {
+        // 如果已完成，直接恢复
+        setPhase('done');
+        setMessages([...scanCache[roleId].messages]);
+        setProgressMsg(scanCache[roleId].progressMsg || '扫描完成');
+        if (scanCache[roleId].perfInfo) {
+          setPerfInfo(scanCache[roleId].perfInfo);
+        }
+        return;
+      } else if (scanCache[roleId].phase === 'scanning') {
+        // 如果正在扫描中，不要重新开始，直接返回
+        console.log('[QBuddy] 扫描正在进行中，跳过');
+        return;
       }
-      return;
     }
     
-    // 清除可能残留的无效缓存（只有非done状态才清除）
+    // roleId变化了，清除旧缓存和扫描状态
+    if (lastScannedRoleId && lastScannedRoleId !== roleId) {
+      console.log('[QBuddy] 角色切换，清除旧缓存:', lastScannedRoleId);
+      // 关闭旧的SSE连接
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
+      cancelledRef.current = true;
+    }
+    
+    // 清除可能残留的无效缓存
     if (scanCache[roleId] && scanCache[roleId].phase !== 'done') {
       delete scanCache[roleId];
     }
     
+    // 更新最后扫描的角色ID
+    lastScannedRoleId = roleId;
+    
     // 延迟500ms后自动开始扫描
     const timer = setTimeout(() => {
+      console.log('[QBuddy] 开始扫描, roleId:', roleId);
+      cancelledRef.current = false;
       startScanWithRole(role);
     }, 500);
     scanTimeoutRef.current = timer;
     
     return () => {
+      console.log('[QBuddy] 组件卸载/清理');
       cancelledRef.current = true;
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
@@ -228,7 +256,6 @@ export default function QBuddyChat({ role, currentTimeIndex, onBack, onNavigateT
         clearTimeout(scanTimeoutRef.current);
         scanTimeoutRef.current = null;
       }
-      // 不删除scanCache —— StrictMode第二次挂载时若缓存是done则直接恢复
     };
   }, []);
 
@@ -244,6 +271,8 @@ export default function QBuddyChat({ role, currentTimeIndex, onBack, onNavigateT
         progressMsg,
         perfInfo
       };
+      // 同步更新最后扫描的角色ID
+      lastScannedRoleId = roleId;
     }
   }, [messages, phase, progressMsg, role?.id, perfInfo]);
 
@@ -423,9 +452,12 @@ export default function QBuddyChat({ role, currentTimeIndex, onBack, onNavigateT
           try {
             if (cancelledRef.current) return;
             
+            console.log('[QBuddy] SSE扫描完成', data);
+            
             // 从SSE事件中提取耗时统计（后端新增performance字段时）
-            if (data?.performance) {
-              setPerfInfo(data.performance);
+            const finalPerfInfo = data?.performance || null;
+            if (finalPerfInfo) {
+              setPerfInfo(finalPerfInfo);
             }
             
             // 更新状态为正在聚合
@@ -464,15 +496,26 @@ export default function QBuddyChat({ role, currentTimeIndex, onBack, onNavigateT
                 timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
               };
               
-              // 如果没有卡片，只显示欢迎语
-              if (groupedMsgs.length === 0) {
-                setMessages([welcomeMessage]);
-              } else {
-                setMessages([welcomeMessage, ...groupedMsgs]);
-              }
+              const finalMessages = groupedMsgs.length === 0 
+                ? [welcomeMessage] 
+                : [welcomeMessage, ...groupedMsgs];
               
+              setMessages(finalMessages);
               setPhase('done');
               setProgressMsg('扫描完成');
+              
+              // 更新缓存
+              const roleId = targetRole.id;
+              if (roleId) {
+                scanCache[roleId] = { 
+                  phase: 'done', 
+                  messages: finalMessages, 
+                  progressMsg: '扫描完成', 
+                  perfInfo: finalPerfInfo 
+                };
+                lastScannedRoleId = roleId;
+                console.log('[QBuddy] 缓存已更新, roleId:', roleId);
+              }
             }, 800);
             
             if (eventSourceRef.current) {
@@ -519,6 +562,9 @@ export default function QBuddyChat({ role, currentTimeIndex, onBack, onNavigateT
   const useLocalFallback = (targetRole) => {
     try {
       const localCards = QBUGDY_CARDS[targetRole?.id] || [];
+      const roleId = targetRole?.id;
+      
+      console.log('[QBuddy] 使用本地fallback, roleId:', roleId);
       
       // 重置收集的卡片
       pendingCardsRef.current = [...localCards];
@@ -536,6 +582,11 @@ export default function QBuddyChat({ role, currentTimeIndex, onBack, onNavigateT
         setMessages([welcomeMsg]);
         setPhase('done');
         setProgressMsg('后端未启动，本地暂无模拟数据。请启动后端以获得完整体验。');
+        // 更新缓存
+        if (roleId) {
+          scanCache[roleId] = { phase: 'done', messages: [welcomeMsg], progressMsg: '后端未启动', perfInfo: null };
+          lastScannedRoleId = roleId;
+        }
         return;
       }
       
@@ -564,18 +615,26 @@ export default function QBuddyChat({ role, currentTimeIndex, onBack, onNavigateT
         if (cancelledRef.current) return;
         
         const groupedMsgs = groupCardsByCategory(pendingCardsRef.current);
+        const finalMessages = [welcomeMsg, ...groupedMsgs];
         
         // 设置模拟的耗时统计
-        setPerfInfo({
+        const finalPerfInfo = {
           graph_build_time: 0.8,
           card_gen_time: 1.2,
           total_time: 2.0,
           source: 'local_fallback'
-        });
+        };
         
-        setMessages([welcomeMsg, ...groupedMsgs]);
+        setMessages(finalMessages);
         setPhase('done');
         setProgressMsg('扫描完成');
+        setPerfInfo(finalPerfInfo);
+        
+        // 更新缓存
+        if (roleId) {
+          scanCache[roleId] = { phase: 'done', messages: finalMessages, progressMsg: '扫描完成', perfInfo: finalPerfInfo };
+          lastScannedRoleId = roleId;
+        }
       }, 4000 + 800);
       
     } catch (e) {
@@ -601,11 +660,25 @@ export default function QBuddyChat({ role, currentTimeIndex, onBack, onNavigateT
 
   // 重新扫描
   const handleRescan = () => {
-    // 清除当前角色的缓存
     const roleId = role?.id;
-    if (roleId && scanCache[roleId]) {
-      delete scanCache[roleId];
+    console.log('[QBuddy] 手动重新扫描, roleId:', roleId);
+    
+    // 关闭当前SSE连接
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
     }
+    
+    // 清除当前角色的缓存
+    if (roleId) {
+      delete scanCache[roleId];
+      // 重置扫描标记，允许重新扫描
+      lastScannedRoleId = null;
+    }
+    
+    // 重置取消标记
+    cancelledRef.current = false;
+    
     // 重置状态
     setMessages([]);
     setPhase('idle');
@@ -613,6 +686,7 @@ export default function QBuddyChat({ role, currentTimeIndex, onBack, onNavigateT
     setExpandedCards({});
     setDismissedCards(new Set());
     setPerfInfo(null);
+    
     // 重新开始扫描
     setTimeout(() => startScanWithRole(role), 300);
   };
