@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 import LoginScreen from './components/LoginScreen/LoginScreen';
 import LeftPanel from './components/LeftPanel/LeftPanel';
 import QQSimulation from './components/QQSimulation/QQSimulation';
@@ -72,7 +73,12 @@ export default function App() {
   const roleCards = selectedRole ? QBUGDY_CARDS[selectedRole.id] || [] : [];
 
   if (!isLoggedIn) {
-    return <LoginScreen onLogin={handleLogin} />;
+    return (
+      <>
+        <LoginScreen onLogin={handleLogin} />
+        <Analytics />
+      </>
+    );
   }
 
   return (
@@ -129,6 +135,7 @@ export default function App() {
           </div>
         </div>
       )}
+      <Analytics />
     </div>
   );
 }
